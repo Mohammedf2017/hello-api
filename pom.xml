@@ -1,40 +1,58 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-	xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+		 xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+		 xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+         https://maven.apache.org/xsd/maven-4.0.0.xsd">
 	<modelVersion>4.0.0</modelVersion>
+
+	<!-- Spring Boot Parent -->
 	<parent>
 		<groupId>org.springframework.boot</groupId>
 		<artifactId>spring-boot-starter-parent</artifactId>
 		<version>3.5.4</version>
-		<relativePath/> <!-- lookup parent from repository -->
+		<relativePath/>
 	</parent>
+
+	<!-- Your Project Information -->
 	<groupId>com.mohamf</groupId>
 	<artifactId>hello-api</artifactId>
 	<version>0.0.1-SNAPSHOT</version>
 	<name>hello-api</name>
-	<description>Demo project for Spring Boot</description>
-	<url/>
-	<licenses>
-		<license/>
-	</licenses>
-	<developers>
-		<developer/>
-	</developers>
-	<scm>
-		<connection/>
-		<developerConnection/>
-		<tag/>
-		<url/>
-	</scm>
+	<description>My First Spring Boot API with Database - Day 30</description>
+
+	<!-- Java Version -->
 	<properties>
-		<java.version>17</java.version>
+		<java.version>20</java.version>
 	</properties>
+
+	<!-- Dependencies -->
 	<dependencies>
+		<!-- 🔥 EXISTING: Spring Boot Web Starter -->
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-web</artifactId>
 		</dependency>
 
+		<!-- 🔥 NEW: Spring Data JPA - Database ORM -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-data-jpa</artifactId>
+		</dependency>
+
+		<!-- 🔥 NEW: H2 Database - Embedded SQL Database -->
+		<dependency>
+			<groupId>com.h2database</groupId>
+			<artifactId>h2</artifactId>
+			<scope>runtime</scope>
+		</dependency>
+
+		<!-- 🔥 NEW: Validation - Bean validation support -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-validation</artifactId>
+		</dependency>
+
+		<!-- EXISTING: Spring Boot Test Starter -->
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-test</artifactId>
@@ -42,6 +60,7 @@
 		</dependency>
 	</dependencies>
 
+	<!-- Build Configuration -->
 	<build>
 		<plugins>
 			<plugin>
@@ -50,5 +69,31 @@
 			</plugin>
 		</plugins>
 	</build>
-
 </project>
+
+		<!--
+        🎯 WHAT WE ADDED:
+
+        1. ✅ spring-boot-starter-data-jpa
+           - Provides JPA (Java Persistence API)
+           - Hibernate ORM implementation
+           - Database entity management
+           - Repository pattern support
+
+        2. ✅ h2 (H2 Database)
+           - Embedded SQL database
+           - Perfect for development and learning
+           - No external database server needed
+           - Web console for database inspection
+
+        3. ✅ spring-boot-starter-validation
+           - Bean validation (@NotNull, @Size, etc.)
+           - Input validation for API endpoints
+           - Error handling for invalid data
+
+        🚀 THESE ADDITIONS ENABLE:
+        - Database entity creation
+        - Automatic table generation
+        - CRUD operations
+        - Data persistence between app restarts
+        -->
