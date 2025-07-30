@@ -1,260 +1,527 @@
 package com.mohamf.hello_api.controller;
 
+import com.mohamf.hello_api.dto.ApiResponse;
 import com.mohamf.hello_api.entity.User;
+import com.mohamf.hello_api.service.ApiMonitoringService;
 import com.mohamf.hello_api.service.UserService;
+import com.mohamf.hello_api.validation.UserValidator;
+import com.mohamf.hello_api.validation.UserValidator.ValidationResult;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.validation.BindingResult;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
+import java.util.stream.Collectors;
 
 /**
- * 🔥 DAY 30: USER CONTROLLER - FIXED VERSION
- *
- * This controller provides 5 CRUD endpoints for User management:
- * 1. POST /api/users - Create new user
- * 2. GET /api/users - Get all users (with optional filtering)
- * 3. GET /api/users/{id} - Get specific user by ID
- * 4. PUT /api/users/{id} - Update existing user
- * 5. DELETE /api/users/{id} - Delete user
+ * Enterprise User Controller with Performance Monitoring
+ * Features:
+ * - Real-time performance tracking
+ * - Request/response analytics
+ * - Enterprise validation
+ * - Professional response format
+ * - Performance insights
  */
 @RestController
 @RequestMapping("/api/users")
 public class UserController {
 
-    private final UserService userService;
+    @Autowired
+    private UserService userService;
 
     @Autowired
-    public UserController(UserService userService) {
-        this.userService = userService;
-    }
+    private UserValidator userValidator;
 
-    // ===================================================================
-    // CREATE ENDPOINT - POST /api/users
-    // ===================================================================
+    @Autowired
+    private ApiMonitoringService monitoringService;
 
+    /**
+     * Create User with Enterprise Validation and Performance Monitoring
+     */
     @PostMapping
-    public ResponseEntity<?> createUser(@Valid @RequestBody User user) {
+    public ResponseEntity<ApiResponse<User>> createUser(@Valid @RequestBody User user, BindingResult bindingResult) {
+        long startTime = System.currentTimeMillis();
+        String requestId = UUID.randomUUID().toString().substring(0, 8);
+        boolean success = false;
+
         try {
-            User createdUser = userService.createUser(user);
+            // Step 1: Check basic Spring validation
+            if (bindingResult.hasErrors()) {
+                List<String> errors = bindingResult.getAllErrors().stream()
+                        .map(error -> error.getDefaultMessage())
+                        .collect(Collectors.toList());
 
-            Map<String, Object> response = new HashMap<>();
-            response.put("success", true);
-            response.put("message", "User created successfully!");
-            response.put("user", createdUser);
-            response.put("id", createdUser.getId());
+                ApiResponse<User> response = ApiResponse.<User>validationError(
+                                "Basic validation failed", errors)
+                        .withRequestId(requestId)
+                        .withExecutionTime(System.currentTimeMillis() - startTime);
 
-            return ResponseEntity.status(HttpStatus.CREATED).body(response);
+                return ResponseEntity.badRequest().body(response);
+            }
 
-        } catch (IllegalArgumentException e) {
-            // FIXED: Catch specific exception first
-            Map<String, Object> errorResponse = new HashMap<>();
-            errorResponse.put("success", false);
-            errorResponse.put("error", "Validation Error");
-            errorResponse.put("message", e.getMessage());
+            // Step 2: Enterprise validation
+            ValidationResult validationResult = userValidator.validateUser(user);
 
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(errorResponse);
+            if (!validationResult.isValid()) {
+                ApiResponse<User> response = ApiResponse.<User>validationErrorWithWarnings(
+                                "Enterprise validation failed",
+                                validationResult.getErrors(),
+                                validationResult.getWarnings())
+                        .withRequestId(requestId)
+                        .withExecutionTime(System.currentTimeMillis() - startTime);
+
+                return ResponseEntity.badRequest().body(response);
+            }
+
+            // Step 3: Create user
+            User savedUser = userService.createUser(user);
+            success = true;
+
+            // Step 4: Build success response
+            String message = "User created successfully with enterprise validation";
+            ApiResponse<User> response;
+
+            if (!validationResult.getWarnings().isEmpty()) {
+                response = ApiResponse.successWithValidation(savedUser, message, validationResult.getWarnings());
+            } else {
+                response = ApiResponse.success(savedUser, message);
+            }
+
+            return ResponseEntity.status(HttpStatus.CREATED)
+                    .body(response
+                            .withRequestId(requestId)
+                            .withExecutionTime(System.currentTimeMillis() - startTime));
 
         } catch (Exception e) {
-            Map<String, Object> errorResponse = new HashMap<>();
-            errorResponse.put("success", false);
-            errorResponse.put("error", "Internal Server Error");
-            errorResponse.put("message", "Failed to create user");
+            ApiResponse<User> response = ApiResponse.<User>error(
+                            "Failed to create user: " + e.getMessage(),
+                            "INTERNAL_ERROR")
+                    .withRequestId(requestId)
+                    .withExecutionTime(System.currentTimeMillis() - startTime);
 
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorResponse);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response);
+        } finally {
+            // Record performance metrics
+            long executionTime = System.currentTimeMillis() - startTime;
+            monitoringService.recordRequest("/api/users", "POST", executionTime, success, requestId);
         }
     }
 
-    // ===================================================================
-    // READ ENDPOINTS - GET /api/users
-    // ===================================================================
-
-    @GetMapping
-    public ResponseEntity<Map<String, Object>> getAllUsers(
-            @RequestParam(required = false) String firstName,
-            @RequestParam(required = false) Integer minAge,
-            @RequestParam(required = false) Integer maxAge) {
-
-        List<User> users;
-        String filterDescription = "all users";
-
-        if (firstName != null && !firstName.trim().isEmpty()) {
-            users = userService.getUsersByFirstName(firstName);
-            filterDescription = "users with first name: " + firstName;
-        } else if (minAge != null || maxAge != null) {
-            users = userService.getUsersByAgeRange(minAge, maxAge);
-            filterDescription = "users in age range: " +
-                    (minAge != null ? minAge : "0") + " - " +
-                    (maxAge != null ? maxAge : "∞");
-        } else {
-            users = userService.getAllUsers();
-        }
-
-        Map<String, Object> response = new HashMap<>();
-        response.put("success", true);
-        response.put("message", "Retrieved " + filterDescription);
-        response.put("count", users.size());
-        response.put("users", users);
-        response.put("totalUsers", userService.getUserCount());
-
-        return ResponseEntity.ok(response);
-    }
-
-    @GetMapping("/{id}")
-    public ResponseEntity<Map<String, Object>> getUserById(@PathVariable Long id) {
-        Optional<User> userOptional = userService.getUserById(id);
-
-        if (userOptional.isPresent()) {
-            User user = userOptional.get();
-
-            Map<String, Object> response = new HashMap<>();
-            response.put("success", true);
-            response.put("message", "User found");
-            response.put("user", user);
-
-            return ResponseEntity.ok(response);
-
-        } else {
-            Map<String, Object> errorResponse = new HashMap<>();
-            errorResponse.put("success", false);
-            errorResponse.put("error", "User Not Found");
-            errorResponse.put("message", "User with ID " + id + " does not exist");
-
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(errorResponse);
-        }
-    }
-
-    // ===================================================================
-    // UPDATE ENDPOINT - PUT /api/users/{id} - FIXED VERSION
-    // ===================================================================
-
+    /**
+     * Update User with Performance Monitoring
+     */
     @PutMapping("/{id}")
-    public ResponseEntity<Map<String, Object>> updateUser(
-            @PathVariable Long id,
-            @Valid @RequestBody User updatedUser) {
+    public ResponseEntity<ApiResponse<User>> updateUser(@PathVariable Long id, @Valid @RequestBody User user, BindingResult bindingResult) {
+        long startTime = System.currentTimeMillis();
+        String requestId = UUID.randomUUID().toString().substring(0, 8);
+        boolean success = false;
 
         try {
-            User user = userService.updateUser(id, updatedUser);
+            // Check if user exists
+            Optional<User> existingUserOpt = userService.getUserById(id);
+            if (existingUserOpt.isEmpty()) {
+                ApiResponse<User> response = ApiResponse.<User>error(
+                                "User not found with id: " + id,
+                                "USER_NOT_FOUND")
+                        .withRequestId(requestId)
+                        .withExecutionTime(System.currentTimeMillis() - startTime);
 
-            Map<String, Object> response = new HashMap<>();
-            response.put("success", true);
-            response.put("message", "User updated successfully!");
-            response.put("user", user);
+                return ResponseEntity.notFound().build();
+            }
 
-            return ResponseEntity.ok(response);
+            User existingUser = existingUserOpt.get();
 
-        } catch (IllegalArgumentException e) {
-            // FIXED: Catch IllegalArgumentException BEFORE RuntimeException
-            Map<String, Object> errorResponse = new HashMap<>();
-            errorResponse.put("success", false);
-            errorResponse.put("error", "Validation Error");
-            errorResponse.put("message", e.getMessage());
+            // Basic validation
+            if (bindingResult.hasErrors()) {
+                List<String> errors = bindingResult.getAllErrors().stream()
+                        .map(error -> error.getDefaultMessage())
+                        .collect(Collectors.toList());
 
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(errorResponse);
+                ApiResponse<User> response = ApiResponse.<User>validationError(
+                                "Basic validation failed", errors)
+                        .withRequestId(requestId)
+                        .withExecutionTime(System.currentTimeMillis() - startTime);
 
-        } catch (RuntimeException e) {
-            // FIXED: Catch RuntimeException AFTER IllegalArgumentException
-            Map<String, Object> errorResponse = new HashMap<>();
-            errorResponse.put("success", false);
-            errorResponse.put("error", "User Not Found");
-            errorResponse.put("message", e.getMessage());
+                return ResponseEntity.badRequest().body(response);
+            }
 
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(errorResponse);
+            // Enterprise validation with update-specific checks
+            ValidationResult validationResult = userValidator.validateUserUpdate(existingUser, user);
+
+            if (!validationResult.isValid()) {
+                ApiResponse<User> response = ApiResponse.<User>validationErrorWithWarnings(
+                                "Enterprise validation failed",
+                                validationResult.getErrors(),
+                                validationResult.getWarnings())
+                        .withRequestId(requestId)
+                        .withExecutionTime(System.currentTimeMillis() - startTime);
+
+                return ResponseEntity.badRequest().body(response);
+            }
+
+            // Update user
+            User updatedUser = userService.updateUser(id, user);
+            success = true;
+
+            // Build success response
+            String message = "User updated successfully with enterprise validation";
+            ApiResponse<User> response;
+
+            if (!validationResult.getWarnings().isEmpty()) {
+                response = ApiResponse.successWithValidation(updatedUser, message, validationResult.getWarnings());
+            } else {
+                response = ApiResponse.success(updatedUser, message);
+            }
+
+            return ResponseEntity.ok(response
+                    .withRequestId(requestId)
+                    .withExecutionTime(System.currentTimeMillis() - startTime));
 
         } catch (Exception e) {
-            Map<String, Object> errorResponse = new HashMap<>();
-            errorResponse.put("success", false);
-            errorResponse.put("error", "Internal Server Error");
-            errorResponse.put("message", "Failed to update user");
+            ApiResponse<User> response = ApiResponse.<User>error(
+                            "Failed to update user: " + e.getMessage(),
+                            "INTERNAL_ERROR")
+                    .withRequestId(requestId)
+                    .withExecutionTime(System.currentTimeMillis() - startTime);
 
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorResponse);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response);
+        } finally {
+            // Record performance metrics
+            long executionTime = System.currentTimeMillis() - startTime;
+            monitoringService.recordRequest("/api/users/{id}", "PUT", executionTime, success, requestId);
         }
     }
 
-    // ===================================================================
-    // DELETE ENDPOINT - DELETE /api/users/{id}
-    // ===================================================================
+    /**
+     * Validation-Only Endpoint with Performance Monitoring
+     */
+    @PostMapping("/validate")
+    public ResponseEntity<ApiResponse<Object>> validateUserData(@RequestBody User user) {
+        long startTime = System.currentTimeMillis();
+        String requestId = UUID.randomUUID().toString().substring(0, 8);
+        boolean success = false;
 
-    @DeleteMapping("/{id}")
-    public ResponseEntity<Map<String, Object>> deleteUser(@PathVariable Long id) {
         try {
-            userService.deleteUser(id);
+            ValidationResult validationResult = userValidator.validateUser(user);
 
-            Map<String, Object> response = new HashMap<>();
-            response.put("success", true);
-            response.put("message", "User with ID " + id + " deleted successfully!");
-            response.put("deletedId", id);
+            Object validationData = new Object() {
+                public final boolean valid = validationResult.isValid();
+                public final boolean meetsProfessionalStandards = validationResult.meetsProfessionalStandards();
+                public final boolean emailDomainAllowed = validationResult.isEmailDomainAllowed();
+                public final String summary = validationResult.toString();
+                public final List<String> errors = validationResult.getErrors();
+                public final List<String> warnings = validationResult.getWarnings();
+            };
 
-            return ResponseEntity.ok(response);
+            String message = validationResult.isValid() ?
+                    "User data passes all enterprise validation checks" :
+                    "User data has validation issues";
 
-        } catch (RuntimeException e) {
-            Map<String, Object> errorResponse = new HashMap<>();
-            errorResponse.put("success", false);
-            errorResponse.put("error", "User Not Found");
-            errorResponse.put("message", e.getMessage());
+            // For validation endpoint, always return success=true since validation operation succeeded
+            ApiResponse<Object> response = ApiResponse.success(validationData, message);
+            success = true;
 
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(errorResponse);
+            return ResponseEntity.ok(response
+                    .withRequestId(requestId)
+                    .withExecutionTime(System.currentTimeMillis() - startTime));
 
         } catch (Exception e) {
-            Map<String, Object> errorResponse = new HashMap<>();
-            errorResponse.put("success", false);
-            errorResponse.put("error", "Internal Server Error");
-            errorResponse.put("message", "Failed to delete user");
+            ApiResponse<Object> response = ApiResponse.<Object>error(
+                            "Failed to validate user data: " + e.getMessage(),
+                            "VALIDATION_ERROR")
+                    .withRequestId(requestId)
+                    .withExecutionTime(System.currentTimeMillis() - startTime);
 
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorResponse);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response);
+        } finally {
+            // Record performance metrics
+            long executionTime = System.currentTimeMillis() - startTime;
+            monitoringService.recordRequest("/api/users/validate", "POST", executionTime, success, requestId);
         }
     }
 
-    // ===================================================================
-    // UTILITY ENDPOINTS
-    // ===================================================================
+    /**
+     * Get All Users with Performance Monitoring
+     */
+    @GetMapping
+    public ResponseEntity<ApiResponse<List<User>>> getAllUsers() {
+        long startTime = System.currentTimeMillis();
+        String requestId = UUID.randomUUID().toString().substring(0, 8);
+        boolean success = false;
 
-    @GetMapping("/stats")
-    public ResponseEntity<Map<String, Object>> getUserStats() {
-        Map<String, Object> stats = new HashMap<>();
-        stats.put("totalUsers", userService.getUserCount());
-        stats.put("gmailUsers", userService.getGmailUsers().size());
-        stats.put("message", "User statistics retrieved successfully");
-        stats.put("timestamp", java.time.LocalDateTime.now());
+        try {
+            List<User> users = userService.getAllUsers();
+            success = true;
 
-        return ResponseEntity.ok(stats);
+            ApiResponse<List<User>> response = ApiResponse.success(
+                            users,
+                            "Users retrieved successfully (" + users.size() + " found)")
+                    .withRequestId(requestId)
+                    .withExecutionTime(System.currentTimeMillis() - startTime);
+
+            return ResponseEntity.ok(response);
+
+        } catch (Exception e) {
+            ApiResponse<List<User>> response = ApiResponse.<List<User>>error(
+                            "Failed to retrieve users: " + e.getMessage(),
+                            "DATA_ACCESS_ERROR")
+                    .withRequestId(requestId)
+                    .withExecutionTime(System.currentTimeMillis() - startTime);
+
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response);
+        } finally {
+            // Record performance metrics
+            long executionTime = System.currentTimeMillis() - startTime;
+            monitoringService.recordRequest("/api/users", "GET", executionTime, success, requestId);
+        }
     }
 
+    /**
+     * 🚀 API Analytics Dashboard - MUST COME BEFORE /{id} mapping
+     * Real-time performance monitoring and insights
+     */
+    @GetMapping("/analytics")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> getAnalyticsDashboard() {
+        long startTime = System.currentTimeMillis();
+        String requestId = UUID.randomUUID().toString().substring(0, 8);
+        boolean success = false;
+
+        try {
+            Map<String, Object> analytics = monitoringService.getAnalyticsDashboard();
+            success = true;
+
+            ApiResponse<Map<String, Object>> response = ApiResponse.success(
+                            analytics,
+                            "API analytics dashboard retrieved successfully")
+                    .withRequestId(requestId)
+                    .withExecutionTime(System.currentTimeMillis() - startTime);
+
+            return ResponseEntity.ok(response);
+
+        } catch (Exception e) {
+            ApiResponse<Map<String, Object>> response = ApiResponse.<Map<String, Object>>error(
+                            "Failed to retrieve analytics: " + e.getMessage(),
+                            "ANALYTICS_ERROR")
+                    .withRequestId(requestId)
+                    .withExecutionTime(System.currentTimeMillis() - startTime);
+
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response);
+        } finally {
+            // Record performance metrics
+            long executionTime = System.currentTimeMillis() - startTime;
+            monitoringService.recordRequest("/api/users/analytics", "GET", executionTime, success, requestId);
+        }
+    }
+
+    /**
+     * Enhanced Email Check with Performance Monitoring
+     */
     @GetMapping("/check-email")
-    public ResponseEntity<Map<String, Object>> checkEmail(@RequestParam String email) {
-        boolean exists = userService.emailExists(email);
+    public ResponseEntity<ApiResponse<Object>> checkEmailAvailability(@RequestParam String email) {
+        long startTime = System.currentTimeMillis();
+        String requestId = UUID.randomUUID().toString().substring(0, 8);
+        boolean success = false;
 
-        Map<String, Object> response = new HashMap<>();
-        response.put("email", email);
-        response.put("exists", exists);
-        response.put("message", exists ? "Email is already in use" : "Email is available");
+        try {
+            if (email == null || email.trim().isEmpty()) {
+                ApiResponse<Object> response = ApiResponse.<Object>error(
+                                "Email parameter is required",
+                                "INVALID_PARAMETER")
+                        .withRequestId(requestId)
+                        .withExecutionTime(System.currentTimeMillis() - startTime);
 
-        return ResponseEntity.ok(response);
+                return ResponseEntity.badRequest().body(response);
+            }
+
+            boolean exists = userService.emailExists(email);
+            boolean domainAllowed = userValidator.isEmailDomainAllowed(email);
+
+            final String emailParam = email;
+            final boolean emailExists = exists;
+            final boolean emailDomainAllowed = domainAllowed;
+
+            Object emailData = new Object() {
+                public final String email = emailParam;
+                public final boolean exists = emailExists;
+                public final boolean available = !emailExists;
+                public final boolean domainAllowed = emailDomainAllowed;
+            };
+
+            String message = exists ? "Email is already in use" : "Email is available";
+            ApiResponse<Object> response = ApiResponse.success(emailData, message);
+
+            if (!domainAllowed) {
+                response = ApiResponse.successWithValidation(
+                        emailData,
+                        message,
+                        List.of("Email domain is not allowed by enterprise policy"));
+            }
+
+            success = true;
+            return ResponseEntity.ok(response
+                    .withRequestId(requestId)
+                    .withExecutionTime(System.currentTimeMillis() - startTime));
+
+        } catch (Exception e) {
+            ApiResponse<Object> response = ApiResponse.<Object>error(
+                            "Failed to check email availability: " + e.getMessage(),
+                            "EMAIL_CHECK_ERROR")
+                    .withRequestId(requestId)
+                    .withExecutionTime(System.currentTimeMillis() - startTime);
+
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response);
+        } finally {
+            // Record performance metrics
+            long executionTime = System.currentTimeMillis() - startTime;
+            monitoringService.recordRequest("/api/users/check-email", "GET", executionTime, success, requestId);
+        }
+    }
+
+    /**
+     * Get User Statistics with Performance Monitoring
+     */
+    @GetMapping("/stats")
+    public ResponseEntity<ApiResponse<Object>> getUserStats() {
+        long startTime = System.currentTimeMillis();
+        String requestId = UUID.randomUUID().toString().substring(0, 8);
+        boolean success = false;
+
+        try {
+            List<User> allUsers = userService.getAllUsers();
+
+            Object stats = new Object() {
+                public final int totalUsers = allUsers.size();
+                public final double averageAge = allUsers.stream()
+                        .filter(u -> u.getAge() != null)
+                        .mapToInt(User::getAge)
+                        .average()
+                        .orElse(0.0);
+                public final long usersOver18 = allUsers.stream()
+                        .filter(u -> u.getAge() != null && u.getAge() >= 18)
+                        .count();
+                public final String timestamp = java.time.LocalDateTime.now().toString();
+            };
+
+            success = true;
+            ApiResponse<Object> response = ApiResponse.success(
+                            stats,
+                            "User statistics retrieved successfully")
+                    .withRequestId(requestId)
+                    .withExecutionTime(System.currentTimeMillis() - startTime);
+
+            return ResponseEntity.ok(response);
+
+        } catch (Exception e) {
+            ApiResponse<Object> response = ApiResponse.<Object>error(
+                            "Failed to get statistics: " + e.getMessage(),
+                            "STATS_ERROR")
+                    .withRequestId(requestId)
+                    .withExecutionTime(System.currentTimeMillis() - startTime);
+
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response);
+        } finally {
+            // Record performance metrics
+            long executionTime = System.currentTimeMillis() - startTime;
+            monitoringService.recordRequest("/api/users/stats", "GET", executionTime, success, requestId);
+        }
+    }
+
+    /**
+     * Get User by ID with Performance Monitoring
+     * IMPORTANT: This MUST come AFTER specific mappings like /analytics, /stats, /check-email
+     */
+    @GetMapping("/{id}")
+    public ResponseEntity<ApiResponse<User>> getUserById(@PathVariable Long id) {
+        long startTime = System.currentTimeMillis();
+        String requestId = UUID.randomUUID().toString().substring(0, 8);
+        boolean success = false;
+
+        try {
+            Optional<User> user = userService.getUserById(id);
+
+            if (user.isPresent()) {
+                success = true;
+                ApiResponse<User> response = ApiResponse.success(
+                                user.get(),
+                                "User retrieved successfully")
+                        .withRequestId(requestId)
+                        .withExecutionTime(System.currentTimeMillis() - startTime);
+
+                return ResponseEntity.ok(response);
+            } else {
+                ApiResponse<User> response = ApiResponse.<User>error(
+                                "User not found with id: " + id,
+                                "USER_NOT_FOUND")
+                        .withRequestId(requestId)
+                        .withExecutionTime(System.currentTimeMillis() - startTime);
+
+                return ResponseEntity.notFound().build();
+            }
+        } catch (Exception e) {
+            ApiResponse<User> response = ApiResponse.<User>error(
+                            "Failed to retrieve user: " + e.getMessage(),
+                            "DATA_ACCESS_ERROR")
+                    .withRequestId(requestId)
+                    .withExecutionTime(System.currentTimeMillis() - startTime);
+
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response);
+        } finally {
+            // Record performance metrics
+            long executionTime = System.currentTimeMillis() - startTime;
+            monitoringService.recordRequest("/api/users/{id}", "GET", executionTime, success, requestId);
+        }
+    }
+
+    /**
+     * Delete User with Performance Monitoring
+     */
+    @DeleteMapping("/{id}")
+    public ResponseEntity<ApiResponse<Object>> deleteUser(@PathVariable Long id) {
+        long startTime = System.currentTimeMillis();
+        String requestId = UUID.randomUUID().toString().substring(0, 8);
+        boolean success = false;
+
+        try {
+            Optional<User> user = userService.getUserById(id);
+            if (user.isEmpty()) {
+                ApiResponse<Object> response = ApiResponse.<Object>error(
+                                "User not found with id: " + id,
+                                "USER_NOT_FOUND")
+                        .withRequestId(requestId)
+                        .withExecutionTime(System.currentTimeMillis() - startTime);
+
+                return ResponseEntity.notFound().build();
+            }
+
+            userService.deleteUser(id);
+            success = true;
+
+            ApiResponse<Object> response = ApiResponse.success(
+                            null,
+                            "User deleted successfully")
+                    .withRequestId(requestId)
+                    .withExecutionTime(System.currentTimeMillis() - startTime);
+
+            return ResponseEntity.ok(response);
+
+        } catch (Exception e) {
+            ApiResponse<Object> response = ApiResponse.<Object>error(
+                            "Failed to delete user: " + e.getMessage(),
+                            "DATA_ACCESS_ERROR")
+                    .withRequestId(requestId)
+                    .withExecutionTime(System.currentTimeMillis() - startTime);
+
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response);
+        } finally {
+            // Record performance metrics
+            long executionTime = System.currentTimeMillis() - startTime;
+            monitoringService.recordRequest("/api/users/{id}", "DELETE", executionTime, success, requestId);
+        }
     }
 }
-
-/*
-🔧 WHAT WAS FIXED:
-
-1. ✅ EXCEPTION HANDLING ORDER
-   - IllegalArgumentException caught BEFORE RuntimeException
-   - More specific exceptions must be caught before general ones
-   - This follows Java's exception hierarchy rules
-
-2. ✅ PROPER CATCH BLOCK SEQUENCE
-   - IllegalArgumentException (most specific)
-   - RuntimeException (general runtime errors)
-   - Exception (catch-all)
-
-🎯 WHY THIS HAPPENED:
-- IllegalArgumentException extends RuntimeException
-- When RuntimeException is caught first, IllegalArgumentException is also caught
-- Java prevents "unreachable code" situations
-
-🚀 NOW YOUR CODE WILL COMPILE SUCCESSFULLY!
-*/
